@@ -1,0 +1,37 @@
+{
+  "name": "kindroid-tui",
+  "version": "0.1.0",
+  "description": "Terminal client for Kindroid AI, built on OpenTUI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/z23/kindroid-tui.git"
+  },
+  "homepage": "https://github.com/z23/kindroid-tui",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "kindroid-tui": "src/index.tsx"
+  },
+  "scripts": {
+    "dev": "bun src/index.tsx",
+    "start": "bun src/index.tsx",
+    "mock": "bun scripts/mock-server.ts",
+    "dev:mock": "KINDROID_API_BASE=http://127.0.0.1:8787 KINDROID_API_KEY=kn_mock bun src/index.tsx",
+    "probe": "bun scripts/probe.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "bun scripts/build.ts"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.8.1",
+    "@opentui/keymap": "^0.8.1",
+    "@opentui/solid": "^0.8.1",
+    "smol-toml": "^1.9.1",
+    "solid-js": "^1.9.16"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}
