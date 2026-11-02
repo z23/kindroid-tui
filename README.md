@@ -5,6 +5,27 @@ An unofficial terminal client for [Kindroid](https://kindroid.ai), built on [Ope
 > **Unofficial.** This project is not affiliated with, endorsed by, or supported by Kindroid. It uses Kindroid's
 > public API with your own API key, so everything it does happens on your account. Use it at your own risk.
 
+### Kindroid's terms apply
+
+Using this client is still using Kindroid, so [Kindroid's Terms of Use and policies](https://kindroid.ai/v2/docs/kindroid-legal/)
+apply. In particular, at the time of writing they say:
+
+- Kindroid is for adults (18+) and for personal, non-commercial use.
+- You're responsible for everything done through your account, including by tools like this one.
+- Don't share your account or credentials. Treat your API key the same way: use your own, and never give it
+  to anyone or commit it anywhere.
+
+What this client does to stay within them:
+
+- It only uses Kindroid's documented public API, with your own key. It doesn't use private endpoints or scrape
+  anything.
+- It only talks to Kindroid while you have it open and are using it. There are no background jobs and no
+  scheduled or automatic messages.
+- It keeps to the published rate limits (10 requests per 30 seconds, 600 history fetches per day).
+- Your key and chat history stay on your machine, readable only by you, and the key is sent only to Kindroid.
+
+This is a summary for convenience, not legal advice. Kindroid's own terms are what count.
+
 - Streaming replies, with `*actions*` in italics and "dialogue" highlighted
 - 1:1 chats and group chats (the group turn loop runs for you, with a reply cap)
 - Undo (rewind), regenerate, chat break with an optional long-term memory wipe
