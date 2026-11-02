@@ -28,7 +28,8 @@ This is a summary for convenience, not legal advice. Kindroid's own terms are wh
 
 - Streaming replies, with `*actions*` in italics and "dialogue" highlighted
 - 1:1 chats and group chats (the group turn loop runs for you, with a reply cap)
-- Undo (rewind), regenerate, chat break with an optional long-term memory wipe
+- Undo several exchanges at once (with a preview), regenerate, chat break with an optional long-term memory wipe
+- Set the current scene for a Kindroid or a group (`/scene` or ctrl+s)
 - Selfies and other images inline (Kitty graphics in Ghostty/Kitty, Sixel, or Unicode blocks elsewhere)
 - A local history cache, so opening a chat is instant and the 600/day history limit goes further
 - A client-side rate limiter that queues requests instead of tripping Kindroid's 10-per-30-seconds limit
@@ -109,16 +110,39 @@ documented for outside use and could change at any time.
 | tab, shift+tab | move focus: composer → chat list → history |
 | ctrl+k | jump to a chat (fuzzy filter), or add one |
 | pgup, pgdn | scroll history; pgup at the top loads older cached messages |
-| ctrl+z | undo the last exchange (asks first) |
+| ctrl+z | undo: pick how many exchanges with ↑↓, see what goes, then confirm |
 | ctrl+r | regenerate the last reply (asks first) |
 | ctrl+n | group chats: let the AIs keep talking |
 | ctrl+b | chat break: new chat with a greeting, optional memory wipe (asks twice) |
+| ctrl+s | edit the current scene |
 | ctrl+l | sync history now |
 | ctrl+o | show/hide images |
 | ctrl+t | show/hide the chat list |
 | ctrl+x | dismiss an error |
 | f1 | help |
 | ctrl+c twice | quit |
+
+## Commands
+
+Type these in the message box:
+
+| Command | Action |
+|---|---|
+| `/scene <text>` | set the current scene, e.g. `/scene A rainy Sunday at the café` |
+| `/scene` | open the scene editor |
+| `/undo <n>` | undo the last n exchanges (n messages in a group); shows what goes and asks first |
+| `/help` | keys and commands |
+| `//text` | send a message that starts with `/` |
+
+### About scenes
+
+The scene is set with Kindroid's `/update-info` (Kindroids) or `/groupchats-update` (groups), and the app sends
+only the `current_scene` field. Kindroid can't tell apps what the current scene is, so the editor starts from
+the last scene you set *from this app*, and the chat's bottom border shows it as “scene (set here)”. If you
+change the scene in the Kindroid app, this app won't know. Saving replaces whatever scene is set.
+
+Memory, backstory and the other profile settings are deliberately not editable here. The API can only
+overwrite them, not read them, so an edit from the terminal could silently wipe what you wrote in the app.
 
 ## Limits
 

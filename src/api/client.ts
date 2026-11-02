@@ -126,6 +126,22 @@ export class KindroidClient {
     }
   }
 
+  /**
+   * Set the current scene: POST /update-info for a Kindroid, POST /groupchats-update for a group.
+   * Deliberately sends only `current_scene`; the other settings those endpoints accept (backstory,
+   * memory, group members…) are write-only and destructive, so this client never touches them.
+   */
+  async setScene(ref: ConversationRef, scene: string, signal?: AbortSignal): Promise<void> {
+    const text = scene.trim()
+    if (!text) throw new KindroidError("bad_request", { detail: "the scene can't be empty" })
+    await this.request(ref.kind === "kin" ? "/update-info" : "/groupchats-update", {
+      method: "POST",
+      body: { [idField(ref)]: ref.id, current_scene: text },
+      signal,
+      timeout: true,
+    })
+  }
+
   /** POST /groupchats-user-message (text only). */
   async groupUserMessage(groupId: string, message: string, signal?: AbortSignal): Promise<void> {
     await this.request("/groupchats-user-message", {

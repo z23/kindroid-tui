@@ -68,16 +68,33 @@ export function MessageView(props: {
   images: ImageMode
   showImages: boolean
   width: number
+  /** Selected by the undo dialog: shown dimmed and marked. */
+  pendingRemoval?: boolean
   ref?: (el: unknown) => void
 }) {
   const m = () => props.message
   const color = () => (m().role === "user" ? theme.user : speakerColor(m().speakerId))
-  const suffix = () => (m().failed ? (m().notSent ? `not sent: ${m().failed}` : m().failed) : m().local ? "…" : undefined)
+  const suffix = () =>
+    props.pendingRemoval
+      ? "✗ will be removed"
+      : m().failed
+        ? m().notSent
+          ? `not sent: ${m().failed}`
+          : m().failed
+        : m().local
+          ? "…"
+          : undefined
   return (
     <box ref={props.ref} flexDirection="column" paddingLeft={1} paddingRight={1} marginBottom={1} flexShrink={0}>
-      <Header name={m().name} color={color()} time={m().timestamp} suffix={suffix()} suffixColor={m().failed ? theme.error : theme.muted} />
+      <Header
+        name={m().name}
+        color={props.pendingRemoval ? theme.muted : color()}
+        time={m().timestamp}
+        suffix={suffix()}
+        suffixColor={m().failed || props.pendingRemoval ? theme.error : theme.muted}
+      />
       <Show when={m().text}>
-        <Body text={m().text} dim={m().notSent} />
+        <Body text={m().text} dim={m().notSent || props.pendingRemoval} />
       </Show>
       <Show when={m().images.length > 0}>
         <Show

@@ -1,4 +1,5 @@
 import { useBindings } from "@opentui/keymap/solid"
+import { useTerminalDimensions } from "@opentui/solid"
 import { For } from "solid-js"
 import { span } from "../Message"
 import { theme } from "../theme"
@@ -11,10 +12,14 @@ export const HELP_KEYS: Array<[string, string]> = [
   ["tab / shift+tab", "move focus: composer → chats → history"],
   ["ctrl+k", "jump to a chat"],
   ["pgup / pgdn", "scroll history (pgup at the top loads older)"],
-  ["ctrl+z", "undo last exchange (rewind)"],
+  ["ctrl+z", "undo: choose how many exchanges to rewind"],
   ["ctrl+r", "regenerate last reply"],
   ["ctrl+n", "group: let the AIs keep talking"],
   ["ctrl+b", "chat break (new chat, optional memory wipe)"],
+  ["ctrl+s", "set the current scene"],
+  ["/scene <text>", "set the scene (/scene alone opens the editor)"],
+  ["/undo <n>", "undo the last n exchanges (asks first)"],
+  ["//text", "send a message that starts with /"],
   ["ctrl+l", "sync history now"],
   ["ctrl+o", "show / hide images"],
   ["ctrl+t", "show / hide the chat list"],
@@ -35,9 +40,14 @@ export function HelpDialog(props: { onClose: () => void; configPath: string }) {
       { key: "return", cmd: "help.close" },
     ],
   }))
+  // Fit small terminals: the key list scrolls (↑↓, pgup/pgdn or the wheel) when it doesn't fit.
+  const dims = useTerminalDimensions()
+  const listHeight = () => Math.max(4, Math.min(HELP_KEYS.length, dims().height - 12))
+  const fits = () => listHeight() >= HELP_KEYS.length
+
   return (
-    <Dialog title="Keys" width={66} footer="esc close">
-      <box flexDirection="column">
+    <Dialog title="Keys" width={66} footer={fits() ? "esc close" : "↑↓ scroll · esc close"}>
+      <scrollbox height={listHeight()} focused scrollY>
         <For each={HELP_KEYS}>
           {([key, what]) => (
             <text>
@@ -46,7 +56,7 @@ export function HelpDialog(props: { onClose: () => void; configPath: string }) {
             </text>
           )}
         </For>
-      </box>
+      </scrollbox>
       <text fg={theme.muted} wrapMode="word">
         {`Config: ${props.configPath}. Limits: 10 requests / 30 s, 600 history fetches / day.`}
       </text>

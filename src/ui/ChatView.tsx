@@ -1,7 +1,7 @@
 import type { Renderable, ScrollBoxRenderable } from "@opentui/core"
 import { For, onCleanup, Show, type Accessor } from "solid-js"
 import type { ImageMode } from "../config"
-import type { ConversationState, Draft } from "../store/conversation"
+import type { ConversationState, Draft, SceneRecord } from "../store/conversation"
 import { DraftView, MessageView } from "./Message"
 import { theme } from "./theme"
 
@@ -23,11 +23,22 @@ export function ChatView(props: {
   spinner: string
   emptyHint: string
   onLoadOlder: () => number
+  /** The scene last set from this app, shown on the bottom border. */
+  scene?: SceneRecord | null
+  /** Messages to mark as about to be removed (the undo dialog's selection). */
+  highlightKeys?: ReadonlySet<string>
   onMouseDown?: () => void
   api?: (api: ChatViewApi) => void
 }) {
   let sb: ScrollBoxRenderable | undefined
   const rows = new Map<string, Renderable>()
+
+  const sceneLabel = () => {
+    const scene = props.scene?.text.replace(/\s+/g, " ")
+    if (!scene) return undefined
+    const room = Math.max(10, props.width - 24)
+    return ` scene (set here): ${scene.length > room ? `${scene.slice(0, room - 1)}…` : scene} `
+  }
 
   /** Pull older cached messages in above the current ones without moving the view. */
   const loadOlderAnchored = () => {
@@ -72,6 +83,8 @@ export function ChatView(props: {
       borderColor={props.focused ? theme.borderFocus : theme.border}
       title={` ${props.title}${props.subtitle ? ` · ${props.subtitle}` : ""} `}
       titleColor={theme.accent}
+      bottomTitle={sceneLabel()}
+      bottomTitleAlignment="left"
       contentOptions={{ flexDirection: "column", paddingTop: 1 }}
       verticalScrollbarOptions={{ trackOptions: { foregroundColor: theme.faint, backgroundColor: "transparent" } }}
     >
@@ -94,6 +107,7 @@ export function ChatView(props: {
             images={props.images}
             showImages={props.showImages}
             width={props.width}
+            pendingRemoval={props.highlightKeys?.has(m.key) ?? false}
             ref={(el) => {
               rows.set(m.key, el as Renderable)
             }}

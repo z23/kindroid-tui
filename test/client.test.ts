@@ -93,6 +93,19 @@ describe("against the mock API", () => {
     expect(forced).toBeTruthy()
   })
 
+  test("setScene sends only current_scene, to the right endpoint", async () => {
+    await client.setScene({ kind: "kin", id: "kin_rex" }, "  A rainy rooftop at dusk ")
+    expect(mock.kins.get("kin_rex")!.info).toEqual({ current_scene: "A rainy rooftop at dusk" })
+    await client.setScene(GROUP, "The diner after the show")
+    expect(mock.groups.get("grp_friends")!.info).toEqual({ current_scene: "The diner after the show" })
+    const sent = mock.requests.filter((r) => r.path === "/update-info" || r.path === "/groupchats-update")
+    expect(sent.map((r) => Object.keys(r.body as object).sort())).toEqual([
+      ["ai_id", "current_scene"],
+      ["current_scene", "group_id"],
+    ])
+    await expectError(client.setScene(GROUP, "   "), "bad_request")
+  })
+
   test("chat break resets to the greeting", async () => {
     await client.chatBreak({ kind: "kin", id: "kin_mira" }, "*yawns* Morning!")
     const hist = await client.getChatMessages({ kind: "kin", id: "kin_mira" })

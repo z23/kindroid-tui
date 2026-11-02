@@ -12,6 +12,9 @@ import { AddConversationDialog, type NewConversation } from "./dialogs/AddConver
 import { ChatBreakDialog } from "./dialogs/ChatBreak"
 import { ConfirmDialog } from "./dialogs/Confirm"
 import { HelpDialog } from "./dialogs/Help"
+import { SceneDialog } from "./dialogs/Scene"
+import { UndoDialog } from "./dialogs/Undo"
+import { COMMAND_HINT, parseComposerInput } from "./commands"
 import { PickerDialog } from "./dialogs/Picker"
 import { useConversationState, useLimitStatus } from "./hooks"
 import { Sidebar, type ConvEntry } from "./Sidebar"
@@ -30,6 +33,8 @@ type DialogState =
   | { kind: "picker" }
   | { kind: "add" }
   | { kind: "break" }
+  | { kind: "scene" }
+  | { kind: "undo"; steps: number }
   | { kind: "confirm"; title: string; message: string; confirmLabel?: string; danger?: boolean; action: () => void }
 
 type Focus = "composer" | "sidebar" | "chat"
@@ -55,6 +60,8 @@ export function App(props: AppProps) {
   const [busyKeys, setBusyKeys] = createSignal<ReadonlySet<string>>(new Set())
   const [quitArmed, setQuitArmed] = createSignal(false)
   const [appNotice, setAppNotice] = createSignal<string | null>(null)
+  /** Messages the open undo dialog would remove, highlighted in the chat. */
+  const [pendingRemoval, setPendingRemoval] = createSignal<ReadonlySet<string>>(new Set())
   const limits = useLimitStatus(props.client.limiter, props.client.budget)
 
   const showSidebar = () => sidebarPref() && dims().width >= 70 && entries().length > 0
@@ -125,6 +132,35 @@ export function App(props: AppProps) {
     setTimeout(() => setAppNotice((n) => (n === text ? null : n)), ms)
   }
 
+  /** Composer submit: a chat message, or a slash command. Returns false to keep the text in the composer. */
+  const submit = (raw: string): boolean => {
+    const input = parseComposerInput(raw)
+    switch (input.kind) {
+      case "message":
+        return send(input.text)
+      case "help":
+        setDialog({ kind: "help" })
+        return true
+      case "unknown":
+        flash(`Unknown command /${input.name}. ${COMMAND_HINT}`, 5000)
+        return false
+      case "invalid":
+        flash(input.reason, 4000)
+        return false
+      case "undo":
+        return openUndo(input.steps)
+      case "scene": {
+        if (!input.text) return openScene()
+        const conv = actionable()
+        if (!conv) return false
+        void conv.setScene(input.text).then((ok) => {
+          if (!ok && composer?.isEmpty()) composer.setText(raw)
+        })
+        return true
+      }
+    }
+  }
+
   const send = (text: string): boolean => {
     const conv = active()
     if (!conv) {
@@ -154,23 +190,17 @@ export function App(props: AppProps) {
     return conv
   }
 
-  const undo = () => {
+  const openUndo = (steps = 1): boolean => {
     const conv = actionable()
-    if (!conv) return
-    setDialog({
-      kind: "confirm",
-      title: "Undo",
-      message: isGroup()
-        ? "Remove the last message in this group from Kindroid?"
-        : "Remove your last message and its reply from Kindroid? Your message goes back into the composer.",
-      confirmLabel: "undo",
-      action: () => {
-        closeDialog()
-        void conv.undo().then((text) => {
-          if (text && composer?.isEmpty()) composer.setText(text)
-        })
-      },
-    })
+    if (!conv) return false
+    setDialog({ kind: "undo", steps })
+    return true
+  }
+
+  const openScene = (): boolean => {
+    if (!actionable()) return false
+    setDialog({ kind: "scene" })
+    return true
   }
 
   const regenerate = () => {
@@ -222,7 +252,8 @@ export function App(props: AppProps) {
         { name: "app.picker", run: () => setDialog({ kind: "picker" }) },
         { name: "app.help", run: () => setDialog({ kind: "help" }) },
         { name: "app.add", run: () => setDialog({ kind: "add" }) },
-        { name: "app.undo", run: undo },
+        { name: "app.undo", run: () => openUndo(1) },
+        { name: "app.scene", run: () => openScene() },
         { name: "app.regenerate", run: regenerate },
         { name: "app.more", run: () => (isGroup() ? void actionable()?.continueGroup() : flash("ctrl+n is for group chats")) },
         { name: "app.break", run: () => actionable() && setDialog({ kind: "break" }) },
@@ -243,6 +274,7 @@ export function App(props: AppProps) {
             { key: "ctrl+k", cmd: "app.picker" },
             { key: "f1", cmd: "app.help" },
             { key: "ctrl+z", cmd: "app.undo" },
+            { key: "ctrl+s", cmd: "app.scene" },
             { key: "ctrl+r", cmd: "app.regenerate" },
             { key: "ctrl+n", cmd: "app.more" },
             { key: "ctrl+b", cmd: "app.break" },
@@ -262,8 +294,8 @@ export function App(props: AppProps) {
     !activeEntry()
       ? "ctrl+k to add your first Kindroid · f1 help"
       : isGroup()
-        ? "enter send · ctrl+n more replies · ctrl+z undo · ctrl+b chat break"
-        : "enter send · ctrl+z undo · ctrl+r regenerate · ctrl+b chat break"
+        ? "enter send · ctrl+n more replies · ctrl+s scene · ctrl+z undo · ctrl+b chat break"
+        : "enter send · ctrl+s scene · ctrl+z undo · ctrl+r regenerate · ctrl+b chat break"
 
   const emptyHint = () =>
     !activeEntry()
@@ -310,6 +342,8 @@ export function App(props: AppProps) {
           <ChatView
             title={activeEntry()?.name ?? "kindroid-tui"}
             subtitle={isGroup() ? "group" : undefined}
+            scene={state().scene}
+            highlightKeys={pendingRemoval()}
             state={state()}
             focused={focus() === "chat" && !dialog()}
             images={config().ui.images}
@@ -325,8 +359,8 @@ export function App(props: AppProps) {
               onMouseDown={() => setFocus("composer")}
               focused={focus() === "composer" && !dialog()}
               busy={state().activity.kind !== "idle"}
-              placeholder={activeEntry() ? `Message ${activeEntry()!.name}…` : "Add a chat first (ctrl+k)"}
-              onSubmit={send}
+              placeholder={activeEntry() ? `Message ${activeEntry()!.name}…  (/ for commands)` : "Add a chat first (ctrl+k)"}
+              onSubmit={submit}
               api={(a) => (composer = a)}
             />
         </box>
@@ -358,6 +392,35 @@ export function App(props: AppProps) {
         </Match>
         <Match when={dialog()?.kind === "add"}>
           <AddConversationDialog lookup={lookup} onSave={saveConversation} onCancel={closeDialog} />
+        </Match>
+        <Match when={dialog()?.kind === "scene" && activeEntry() && active()}>
+          <SceneDialog
+            name={activeEntry()!.name}
+            isGroup={isGroup()}
+            current={state().scene}
+            onCancel={closeDialog}
+            onSave={(text) => {
+              const conv = active()
+              closeDialog()
+              if (conv) void conv.setScene(text)
+            }}
+          />
+        </Match>
+        <Match when={dialog()?.kind === "undo" && active()}>
+          <UndoDialog
+            initialSteps={(dialog() as Extract<DialogState, { kind: "undo" }>).steps}
+            preview={(n) => active()!.undoPreview(n)}
+            onHighlight={setPendingRemoval}
+            onCancel={closeDialog}
+            onConfirm={(steps) => {
+              const conv = active()
+              closeDialog()
+              if (!conv) return
+              void conv.undo(steps).then((text) => {
+                if (text && composer?.isEmpty()) composer.setText(text)
+              })
+            }}
+          />
         </Match>
         <Match when={dialog()?.kind === "break" && activeEntry()}>
           <ChatBreakDialog

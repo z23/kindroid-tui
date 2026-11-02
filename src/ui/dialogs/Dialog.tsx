@@ -31,6 +31,7 @@ export function Dialog(props: {
         bottomTitleAlignment="right"
         width={props.width ?? 60}
         maxWidth="90%"
+        maxHeight="95%"
         flexDirection="column"
         paddingLeft={2}
         paddingRight={2}

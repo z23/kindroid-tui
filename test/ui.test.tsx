@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test"
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { KeymapProvider } from "@opentui/keymap/solid"
@@ -15,6 +15,9 @@ import { App } from "../src/ui/App"
 import { normalizeId } from "../src/ui/dialogs/AddConversation"
 import { formatMessage } from "../src/ui/format"
 import { fuzzyScore } from "../src/ui/dialogs/Picker"
+
+// UI tests wait on real sockets; give them more than bun's 5 s default (CI runners are slower).
+setDefaultTimeout(30_000)
 
 let mock: MockKindroid
 let setup: TestRendererSetup | undefined
@@ -173,7 +176,7 @@ describe("UI", () => {
     await gone(s, "typing")
     await waitUntil(s, (f) => !f.includes("syncing") && !f.includes("sending"))
     s.mockInput.pressKey("z", { ctrl: true })
-    await until(s, "Remove your last message")
+    await until(s, "Undo the last 1 exchange")
     s.mockInput.pressKey("y")
     const frame = await waitUntil(s, (f) => f.includes("Undid the last exchange"))
     // the text is back in the composer, not in the history
@@ -309,6 +312,82 @@ describe("UI", () => {
     s.mockInput.pressKey("j")
     s.mockInput.pressEnter()
     await until(s, "Message Mira…")
+  })
+
+  test("/scene sets the scene, shows it, and ctrl+s reopens it for editing", async () => {
+    const s = await mount()
+    await ready(s)
+    await s.mockInput.typeText("/scene A storm rolls in over the harbour")
+    s.mockInput.pressEnter()
+    await until(s, "scene (set here): A storm rolls in over the harbour")
+    await until(s, "Scene updated")
+    expect(mock.kins.get("kin_ava")!.info.current_scene).toBe("A storm rolls in over the harbour")
+    // the command didn't go out as a chat message
+    expect(mock.kins.get("kin_ava")!.messages.some((m) => m.message.includes("/scene"))).toBe(false)
+    s.mockInput.pressKey("s", { ctrl: true })
+    const dialog = await until(s, "Scene · Ava")
+    expect(dialog.replace(/[│\s]+/g, " ")).toContain("this is the one you set here")
+    // the editor is pre-filled with the scene set earlier (its line sits inside two nested borders)
+    expect(dialog.split("\n").some((l) => /│\s+│ A storm rolls in over the harbour/.test(l))).toBe(true)
+    s.mockInput.pressEscape()
+    await gone(s, "Scene · Ava")
+  })
+
+  test("ctrl+z picks how many exchanges to undo and highlights them", async () => {
+    const s = await mount()
+    await ready(s)
+    s.mockInput.pressKey("z", { ctrl: true })
+    await until(s, "Undo the last 1 exchange")
+    s.mockInput.pressArrow("up")
+    const frame = await until(s, "Undo the last 2 exchanges")
+    expect(frame).toContain("✗ will be removed")
+    s.mockInput.pressKey("9")
+    await until(s, "Undo the last 5 exchanges")
+    s.mockInput.pressEscape()
+    const after = await gone(s, "Undo the last")
+    expect(after).not.toContain("will be removed")
+  })
+
+  test("/undo 2 rewinds two exchanges after confirming", async () => {
+    const s = await mount()
+    await ready(s)
+    for (const text of ["undo test one", "undo test two"]) {
+      await s.mockInput.typeText(text)
+      s.mockInput.pressEnter()
+      await until(s, text)
+      await waitUntil(s, (f) => {
+        const status = f.trimEnd().split("\n").at(-1) ?? ""
+        return !/sending|typing|syncing/.test(status)
+      })
+    }
+    const before = mock.kins.get("kin_ava")!.messages.length
+    await s.mockInput.typeText("/undo 2")
+    s.mockInput.pressEnter()
+    await until(s, "Undo the last 2 exchanges")
+    s.mockInput.pressKey("y")
+    const frame = await until(s, "Undid the last 2 exchanges")
+    expect(mock.kins.get("kin_ava")!.messages.length).toBe(before - 4)
+    // the earlier message is back in the composer for editing
+    expect(frame.split("\n").filter((l) => l.includes("undo test one")).length).toBe(1)
+  })
+
+  test("// sends a message that starts with a slash", async () => {
+    const s = await mount()
+    await ready(s)
+    await s.mockInput.typeText("//waves hello")
+    s.mockInput.pressEnter()
+    await until(s, "/waves hello")
+    await waitUntil(s, () => mock.kins.get("kin_ava")!.messages.some((m) => m.message === "/waves hello"))
+  })
+
+  test("an unknown command keeps the text and explains", async () => {
+    const s = await mount()
+    await ready(s)
+    await s.mockInput.typeText("/selfie now")
+    s.mockInput.pressEnter()
+    const frame = await until(s, "Unknown command /selfie")
+    expect(frame).toContain("/selfie now")
+    expect(mock.kins.get("kin_ava")!.messages.some((m) => m.message.includes("/selfie"))).toBe(false)
   })
 
   test("narrow terminals hide the chat list", async () => {

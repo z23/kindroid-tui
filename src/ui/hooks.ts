@@ -10,6 +10,7 @@ const EMPTY: ConversationState = {
   notice: null,
   canLoadOlder: false,
   lastSyncedAt: null,
+  scene: null,
 }
 
 /** Mirror a Conversation's state into a Solid signal. Unchanged arrays and messages keep their identity. */

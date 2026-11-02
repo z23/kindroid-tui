@@ -27,12 +27,16 @@ export interface MockMessage {
 interface MockKin {
   name: string
   messages: MockMessage[]
+  /** Settings written through /update-info, for tests to inspect. */
+  info: Record<string, string>
 }
 
 interface MockGroup {
   name: string
   ai_list: string[]
   messages: MockMessage[]
+  /** Settings written through /groupchats-update, for tests to inspect. */
+  info: Record<string, unknown>
   /** AI turns remaining before the user gets the floor again. */
   pendingTurns: number
   nextSpeaker: number
@@ -112,7 +116,7 @@ export function startMockKindroid(opts: MockOptions = {}): MockKindroid {
         messages.push(msg(id, "ai", name, REPLIES[i % REPLIES.length]!))
       }
     }
-    kins.set(id, { name, messages })
+    kins.set(id, { name, messages, info: {} })
   }
   groups.set("grp_friends", {
     name: "Friends",
@@ -120,6 +124,7 @@ export function startMockKindroid(opts: MockOptions = {}): MockKindroid {
     messages: [msg("kin_rex", "ai", "Rex", "*kicks back on the couch* So who's picking the movie tonight?")],
     pendingTurns: 0,
     nextSpeaker: 0,
+    info: {},
   })
   seeding = false
 
@@ -285,6 +290,39 @@ export function startMockKindroid(opts: MockOptions = {}): MockKindroid {
           const speaker = isGroup ? (conv as MockGroup).ai_list[0]! : String(body.ai_id)
           const name = kins.get(speaker)?.name ?? "AI"
           conv.messages = [msg(speaker, "ai", name, String(body.greeting))]
+          return text("")
+        }
+
+        case "POST /update-info": {
+          const kin = kins.get(String(body.ai_id))
+          if (!kin) return text("Kindroid not found", 404)
+          const allowed = [
+            "ai_name", "ai_gender", "ai_backstory", "ai_memory", "ai_directive", "ai_example_message",
+            "ai_additional_context", "current_scene", "user_name", "user_gender",
+          ]
+          for (const [k, v] of Object.entries(body)) {
+            if (k === "ai_id") continue
+            if (!allowed.includes(k) || typeof v !== "string") return text(`invalid field ${k}`, 400)
+            kin.info[k] = v
+          }
+          return text("")
+        }
+
+        case "POST /groupchats-update": {
+          const group = groups.get(String(body.group_id))
+          if (!group) return text("Not found", 404)
+          if (!subscribed) return text("Subscription required", 403)
+          for (const [k, v] of Object.entries(body)) {
+            if (k === "group_id") continue
+            if (k === "ai_list") {
+              if (!Array.isArray(v) || v.length === 0) return text("ai_list needs at least one AI", 400)
+              group.ai_list = v.map(String)
+            } else if (["group_name", "group_context", "group_directive", "current_scene"].includes(k) && typeof v === "string") {
+              group.info[k] = v
+            } else {
+              return text(`invalid field ${k}`, 400)
+            }
+          }
           return text("")
         }
 

@@ -15,11 +15,11 @@ beforeAll(() => {
 afterAll(() => mock.stop())
 afterEach(() => cache?.close())
 
-function setup(ref: ConversationRef, opts: { maxGroupTurns?: number; wordDelayMs?: number } = {}) {
+function setup(ref: ConversationRef, opts: { maxGroupTurns?: number; wordDelayMs?: number; server?: MockKindroid } = {}) {
   cache = new HistoryCache(":memory:")
   const client = new KindroidClient({
     apiKey: "kn_test",
-    baseUrl: `${mock.url}/v1`,
+    baseUrl: `${(opts.server ?? mock).url}/v1`,
     limiter: new RateLimiter({ limit: 1000 }),
     budget: new DailyBudget(cache.budgetStore()),
   })
@@ -195,6 +195,100 @@ describe("Conversation (1:1)", () => {
     const last = conv.state.messages.at(-1)!
     expect(last.notSent).toBe(true)
     expect(conv.state.error).toContain("Unknown")
+  })
+})
+
+describe("Conversation scene and multi-step undo", () => {
+  test("setScene saves on Kindroid and is remembered locally", async () => {
+    const { client, conv } = setup({ kind: "kin", id: "kin_ava" })
+    await conv.open()
+    expect(conv.state.scene).toBeNull()
+    expect(await conv.setScene("On a night train to Lisbon")).toBe(true)
+    expect(mock.kins.get("kin_ava")!.info.current_scene).toBe("On a night train to Lisbon")
+    expect(conv.state.scene?.text).toBe("On a night train to Lisbon")
+    expect(conv.state.notice).toBe("Scene updated")
+    // a fresh controller on the same cache (e.g. after a restart) still knows it
+    const again = new Conversation({
+      client,
+      cache,
+      ref: { kind: "kin", id: "kin_ava" },
+      title: "Ava",
+      nameFor: () => "Ava",
+      maxGroupTurns: 4,
+    })
+    await again.open()
+    expect(again.state.scene?.text).toBe("On a night train to Lisbon")
+  })
+
+  test("an empty scene is refused without calling the API", async () => {
+    const { conv } = setup({ kind: "kin", id: "kin_ava" })
+    const before = mock.requests.length
+    expect(await conv.setScene("  ")).toBe(false)
+    expect(conv.state.error).toContain("empty")
+    expect(mock.requests.length).toBe(before)
+  })
+
+  test("undo(2) removes two exchanges and returns the earlier message", async () => {
+    const { conv } = setup({ kind: "kin", id: "kin_mira" })
+    await conv.open()
+    const before = conv.state.messages.length
+    await conv.send("first of two")
+    await conv.send("second of two")
+    const preview = conv.undoPreview(2)
+    expect(preview.messages.map((m) => m.role)).toEqual(["user", "ai", "user", "ai"])
+    expect(preview.problem).toBeUndefined()
+    expect(await conv.undo(2)).toBe("first of two")
+    expect(conv.state.messages.length).toBe(before)
+    expect(conv.state.notice).toBe("Undid the last 2 exchanges")
+  })
+
+  test("the preview caps steps at 5 exchanges for 1:1 chats", async () => {
+    const fresh = startMockKindroid({ wordDelayMs: 0, rateLimit: false })
+    try {
+      const { conv } = setup({ kind: "kin", id: "kin_ava" }, { server: fresh })
+      await conv.open()
+      const p = conv.undoPreview(9)
+      expect(p.maxSteps).toBe(5)
+      expect(p.steps).toBe(5)
+      expect(p.messages.length).toBe(10)
+      expect(p.problem).toBeUndefined()
+    } finally {
+      fresh.stop()
+    }
+  })
+
+  test("the preview flags a missing reply and a split exchange", async () => {
+    const fresh = startMockKindroid({ wordDelayMs: 0, rateLimit: false })
+    try {
+      const { conv } = setup({ kind: "kin", id: "kin_rex" }, { server: fresh })
+      await conv.open()
+      // a failed generation leaves the user's message without a reply: [greeting, user]
+      await conv.send("/error")
+      expect(conv.undoPreview(1).problem).toContain("reply is missing")
+      // [greeting, user, user, ai]: one exchange is fine, two would start on the greeting
+      await conv.send("trying again")
+      expect(conv.undoPreview(1).problem).toBeUndefined()
+      expect(conv.undoPreview(2).problem).toContain("split an exchange")
+      const before = fresh.requests.filter((r) => r.path === "/rewind-messages").length
+      await conv.undo(2)
+      expect(conv.state.error).toContain("split an exchange")
+      expect(fresh.requests.filter((r) => r.path === "/rewind-messages").length).toBe(before)
+    } finally {
+      fresh.stop()
+    }
+  })
+
+  test("group undo(3) removes three messages", async () => {
+    const { conv } = setup({ kind: "group", id: "grp_friends" })
+    await conv.open()
+    await conv.send("a quick question for everyone")
+    const before = conv.state.messages.length
+    const p = conv.undoPreview(3)
+    expect(p.unit).toBe("message")
+    expect(p.messages.length).toBe(3)
+    await conv.undo(3)
+    expect(conv.state.messages.length).toBe(before - 3)
+    expect(conv.state.notice).toBe("Removed the last 3 messages")
   })
 })
 

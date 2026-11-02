@@ -17,6 +17,10 @@ documentation at <https://kindroid.ai/v2/docs/api-documentation/>.
 - Groups: `groupchats-user-message` → `groupchats-get-turn` (an `ai_id`, or an empty body for the user's
   turn) → `groupchats-ai-response` → repeat. Subscription required (403 otherwise).
 - There is no endpoint to list Kindroids or groups, or to read a Kindroid's profile.
+- `/update-info` and `/groupchats-update` are write-only: they change settings but nothing reads them back.
+  The client uses them only to set `current_scene` (see `KindroidClient.setScene`). It never sends memory,
+  backstory, directive, group members or other profile fields, because overwriting values it can't read
+  could destroy what the user wrote in the app.
 
 ## Confirmed against the real API
 

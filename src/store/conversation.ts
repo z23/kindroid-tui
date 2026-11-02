@@ -37,6 +37,7 @@ export type Activity =
   | { kind: "streaming"; speakerId: string; name: string }
   | { kind: "rewinding" }
   | { kind: "breaking" }
+  | { kind: "updating" }
 
 export interface Draft {
   speakerId: string
@@ -53,11 +54,44 @@ export interface ConversationState {
   /** More (older) messages exist in the local cache. */
   canLoadOlder: boolean
   lastSyncedAt: number | null
+  /**
+   * The scene last set from this app. Kindroid can't report the real current scene, so this may be
+   * stale if it was changed elsewhere.
+   */
+  scene: SceneRecord | null
 }
+
+export interface SceneRecord {
+  text: string
+  /** When it was set, ms since epoch. */
+  at: number
+}
+
+export interface UndoPreview {
+  /** What `steps` means here: exchanges in a 1:1 chat, messages in a group. */
+  unit: "exchange" | "message"
+  steps: number
+  maxSteps: number
+  /** Messages that would be removed, oldest first. */
+  messages: ViewMessage[]
+  /** Why this undo can't go ahead, if it can't. */
+  problem?: string
+}
+
+/** The API rewinds at most 10 messages per call: 5 exchanges in a 1:1 chat. */
+export const MAX_REWIND_MESSAGES = 10
 
 export type ConversationClient = Pick<
   KindroidClient,
-  "sendMessage" | "getChatMessages" | "rewind" | "chatBreak" | "groupUserMessage" | "groupGetTurn" | "groupAiResponse" | "budget"
+  | "sendMessage"
+  | "getChatMessages"
+  | "rewind"
+  | "chatBreak"
+  | "setScene"
+  | "groupUserMessage"
+  | "groupGetTurn"
+  | "groupAiResponse"
+  | "budget"
 >
 
 export interface ConversationDeps {
@@ -128,6 +162,7 @@ export class Conversation {
     notice: null,
     canLoadOlder: false,
     lastSyncedAt: null,
+    scene: null,
   }
 
   private readonly deps: Required<Omit<ConversationDeps, "now" | "userName">> & { now: () => number; userName?: string }
@@ -173,6 +208,7 @@ export class Conversation {
   async open(): Promise<void> {
     if (!this.opened) {
       this.opened = true
+      this.set({ scene: this.loadScene() })
       this.reloadFromCache()
     }
     await this.sync({ manual: false })
@@ -262,33 +298,74 @@ export class Conversation {
   }
 
   /**
-   * Remove the last exchange (1:1: user message + reply) or the last message (group) on the server.
-   * Returns the removed user text so the UI can offer it for editing.
+   * What `undo(steps)` would remove: the last `steps` exchanges (1:1, a message and its reply) or
+   * messages (group). Built from the messages on screen, so the UI can show and highlight them.
    */
-  async undo(): Promise<string | null> {
+  undoPreview(steps: number): UndoPreview {
+    const kin = this.ref.kind === "kin"
+    const server = this.serverMessages
+    const maxSteps = Math.max(1, kin ? Math.min(MAX_REWIND_MESSAGES / 2, Math.floor(server.length / 2)) : Math.min(MAX_REWIND_MESSAGES, server.length))
+    const n = Math.min(Math.max(1, Math.floor(steps)), maxSteps)
+    const count = kin ? n * 2 : n
+    const messages = server.slice(-count)
+    const preview: UndoPreview = { unit: kin ? "exchange" : "message", steps: n, maxSteps, messages }
+    if (messages.length < count) preview.problem = "there aren't that many messages to undo"
+    else if (kin && messages.at(-1)?.role === "user")
+      preview.problem = "the last reply is missing and Kindroid only rewinds whole exchanges; send another message instead"
+    else if (kin && messages[0]?.role !== "user")
+      preview.problem = "that would split an exchange; choose a different number"
+    return preview
+  }
+
+  /**
+   * Remove the last `steps` exchanges (1:1) or messages (group) on the server. Returns the earliest
+   * removed user message so the UI can put it back in the composer for editing.
+   */
+  async undo(steps = 1): Promise<string | null> {
     if (!(await this.settle())) return null
     let restored: string | null = null
     await this.run({ kind: "rewinding" }, async (signal) => {
       if (this.locals.some((m) => !m.notSent)) await this.syncNow(signal)
-      const count = this.ref.kind === "kin" ? 2 : 1
-      const tail = this.serverMessages.slice(-count)
-      if (this.ref.kind === "kin" && tail.at(-1)?.role === "user") {
-        throw new KindroidError("conflict", {
-          detail: "the last reply is missing and Kindroid only rewinds whole exchanges; send another message instead",
-        })
-      }
-      if (this.ref.kind === "kin" && (tail.length < 2 || tail[0]!.role !== "user")) {
-        throw new KindroidError("conflict", { detail: "the last two messages aren't a message and its reply" })
-      }
-      const res = await this.deps.client.rewind(this.ref, count, signal)
+      const preview = this.undoPreview(steps)
+      if (preview.problem) throw new KindroidError("conflict", { detail: preview.problem })
+      const tail = preview.messages
+      const res = await this.deps.client.rewind(this.ref, tail.length, signal)
       const ids = res.deleted_message_ids?.length ? res.deleted_message_ids : tail.map((m) => m.id!).filter(Boolean)
       this.deps.cache.remove(this.ref, ids)
       restored = tail.find((m) => m.role === "user")?.text ?? null
       this.locals = []
       this.reloadFromCache()
-      this.set({ notice: this.ref.kind === "kin" ? "Undid the last exchange" : "Removed the last message" })
+      const n = preview.steps
+      this.set({
+        notice:
+          preview.unit === "exchange"
+            ? n === 1 ? "Undid the last exchange" : `Undid the last ${n} exchanges`
+            : n === 1 ? "Removed the last message" : `Removed the last ${n} messages`,
+      })
     })
     return restored
+  }
+
+  /**
+   * Set the current scene on Kindroid. This replaces whatever scene is set there now; the API can't
+   * read it back, so the text is also kept locally to show and to pre-fill the next edit.
+   */
+  async setScene(text: string): Promise<boolean> {
+    const scene = text.trim()
+    if (!scene) {
+      this.set({ error: "The scene can't be empty" })
+      return false
+    }
+    if (!(await this.settle())) return false
+    let ok = false
+    await this.run({ kind: "updating" }, async (signal) => {
+      await this.deps.client.setScene(this.ref, scene, signal)
+      const record: SceneRecord = { text: scene, at: this.deps.now() }
+      this.deps.cache.setMeta(`scene:${this.key}`, JSON.stringify(record))
+      this.set({ scene: record, notice: "Scene updated" })
+      ok = true
+    })
+    return ok
   }
 
   /** 1:1 only: rewind the last exchange and send the same user message again. */
@@ -483,6 +560,17 @@ export class Conversation {
     }
     this.views.set(m.id, { raw: rawKey, view })
     return view
+  }
+
+  private loadScene(): SceneRecord | null {
+    const raw = this.deps.cache.getMeta(`scene:${this.key}`)
+    if (!raw) return null
+    try {
+      const rec = JSON.parse(raw) as SceneRecord
+      return typeof rec.text === "string" && rec.text ? rec : null
+    } catch {
+      return null
+    }
   }
 
   private userLabel(fromServer?: string): string {

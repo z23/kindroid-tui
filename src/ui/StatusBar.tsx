@@ -21,6 +21,8 @@ function activityText(a: Activity, spinner: string, limits: LimitStatus): string
       return `${spinner} rewinding${waiting}`
     case "breaking":
       return `${spinner} starting a new chat${waiting}`
+    case "updating":
+      return `${spinner} updating the scene${waiting}`
   }
 }
 
