@@ -36,7 +36,16 @@ This is a summary for convenience, not legal advice. Kindroid's own terms are wh
 
 ## Install
 
-Needs [Bun](https://bun.sh) 1.3.14 or newer (pinned to 1.4 in `mise.toml`).
+On x86-64 Linux, download `kindroid-tui-linux-x64` from the
+[latest release](https://github.com/z23/kindroid-tui/releases/latest), check it against `SHA256SUMS`, and
+put it on your `PATH`:
+
+```sh
+sha256sum -c --ignore-missing SHA256SUMS
+install -m 755 kindroid-tui-linux-x64 ~/.local/bin/kindroid-tui
+```
+
+To build it yourself you need [Bun](https://bun.sh) 1.3.14 or newer (pinned to 1.4 in `mise.toml`):
 
 ```sh
 mise install          # or install Bun another way
@@ -158,6 +167,14 @@ after each reply, and when you press ctrl+l. Automatic fetches stop when fewer t
 - The API key is never logged, and anything that looks like a key is stripped from error messages.
 - The binary doesn't read `.env`, `bunfig.toml` or similar files from the directory you run it in.
 
+## Omarchy plugin
+
+On [Omarchy](https://omarchy.org), [omarchy-plugin-kindroid](https://github.com/z23/omarchy-plugin-kindroid)
+puts the same chats in a panel under the bar, with streaming replies, group chats, selfies, scenes and undo.
+It doesn't talk to Kindroid itself: it starts `kindroid-tui serve`, a headless mode of this binary that speaks
+JSON lines on stdin/stdout (see [docs/serve-protocol.md](docs/serve-protocol.md)). The terminal UI and the
+panel share config.toml and the history cache, so you can use either.
+
 ## Development
 
 ```sh
@@ -173,7 +190,7 @@ The mock server reproduces the documented API behaviour, including streaming kee
 `/break`, `/slow`, `/long`, and `selfie`.
 
 Layout: `src/api` (HTTP client, stream parser, rate limiter), `src/store` (sqlite cache, per-conversation
-controller), `src/ui` (OpenTUI/Solid components).
+controller), `src/ui` (OpenTUI/Solid components), `src/serve` (the headless JSON-lines helper).
 
 ## License
 

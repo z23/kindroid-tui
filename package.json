@@ -1,6 +1,6 @@
 {
   "name": "kindroid-tui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Terminal client for Kindroid AI, built on OpenTUI",
   "license": "MIT",
   "repository": {

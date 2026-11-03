@@ -2,9 +2,10 @@ import { KindroidError, isAbort, kindForStatus } from "./errors"
 import { DailyBudget, MemoryBudgetStore, RateLimiter } from "./rateLimiter"
 import { ERROR_MARKER, HTTP_ERROR_MARKER, parseKindroidStream } from "./stream"
 import type { ChatMessage, ChatMessagesResponse, ConversationRef, RewindResult } from "./types"
+import { VERSION } from "../version"
 
 export const DEFAULT_BASE_URL = "https://api.kindroid.ai/v1"
-const USER_AGENT = "kindroid-tui/0.1"
+const USER_AGENT = `kindroid-tui/${VERSION}`
 
 export interface KindroidClientOptions {
   apiKey: string

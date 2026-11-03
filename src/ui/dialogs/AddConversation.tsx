@@ -2,10 +2,13 @@ import type { InputRenderable } from "@opentui/core"
 import { useBindings } from "@opentui/keymap/solid"
 import { createSignal, Show } from "solid-js"
 import { describeError } from "../../api/errors"
+import { normalizeId } from "../../ids"
 import type { ConversationKind } from "../../api/types"
 import { span } from "../Message"
 import { theme } from "../theme"
 import { Dialog } from "./Dialog"
+
+export { normalizeId }
 
 type Field = "id" | "name"
 
@@ -15,13 +18,6 @@ export interface NewConversation {
   id: string
 }
 
-/** Accept a bare ID or a pasted web URL (…/chat/group/<id>, or any URL ending in the ID). */
-export function normalizeId(raw: string): string {
-  const t = raw.trim()
-  if (!/^https?:\/\//i.test(t) && !t.includes("/")) return t
-  const path = t.replace(/[?#].*$/, "").replace(/\/+$/, "")
-  return path.slice(path.lastIndexOf("/") + 1)
-}
 
 /**
  * Add a Kindroid (by ai_id) or a group (by group_id). Kindroid's API can't list your Kindroids or read
